@@ -1,41 +1,41 @@
 import os
-import logging
 import requests
 from flask import Flask, request
-from telegram import Update, Bot
-from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filters
+from telegram import Bot, Update
+from telegram.ext import Dispatcher, MessageHandler, filters, CallbackContext
+import openai
 
-# إعدادات البوت
-BOT_TOKEN = "8160586658:AAGGFpDdsIUar2sYKrt0ZgdOP3rRpfLMRfM"
+TOKEN = "8160586658:AAGGFpDdsIUar2sYKrt0ZgdOP3rRpfLMRfM"
 OPENAI_API_KEY = "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"
 
-# تهيئة البوت
-bot = Bot(token=BOT_TOKEN)
 app = Flask(__name__)
+bot = Bot(token=TOKEN)
+openai.api_key = OPENAI_API_KEY
 
-# رد على كل رسالة (نص أو صورة)
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message.photo:
-        await update.message.reply_text("📸 استقبلت صورة، بس الرد على الصور مش مفعل حالياً.")
-    elif update.message.text:
-        await update.message.reply_text(f"🧠 رد تلقائي على: {update.message.text}")
+dispatcher = Dispatcher(bot, None, workers=0, use_context=True)
 
-# نقطة البداية للويب هوك
-@app.route('/')
-def home():
-    return '✅ البوت شغال على Render'
+def handle_message(update: Update, context: CallbackContext):
+    text = update.message.text
+    chat_id = update.effective_chat.id
+    response = openai.ChatCompletion.create(
+        model="gpt-3.5-turbo",
+        messages=[{"role": "user", "content": text}]
+    )
+    reply = response.choices[0].message.content
+    bot.send_message(chat_id=chat_id, text=reply)
 
-@app.route('/webhook', methods=['POST'])
+dispatcher.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+
+@app.route(f"/{TOKEN}", methods=["POST"])
 def webhook():
-    if request.method == "POST":
-        update = Update.de_json(request.get_json(force=True), bot)
-        application = ApplicationBuilder().token(BOT_TOKEN).build()
-        application.add_handler(MessageHandler(filters.ALL, handle_message))
-        application.process_update(update)
-        return "ok"
-    return "not ok"
+    update = Update.de_json(request.get_json(force=True), bot)
+    dispatcher.process_update(update)
+    return "ok"
 
-# تشغيل السيرفر على Render
+@app.route("/")
+def index():
+    return "Bot is running."
+
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+    bot.set_webhook(f"https://YOUR_RENDER_URL.onrender.com/{TOKEN}")
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
